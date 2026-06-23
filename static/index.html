@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>vmagent: sharding emulator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <h1>vmagent: sharding emulator</h1>
+      <p class="subtitle">
+        Visualise how <a href="https://docs.victoriametrics.com/victoriametrics/vmagent/#sharding-among-remote-storages" target="_blank">vmagent sharding</a> distributes time series across vmagent
+        shards — for planning <a href="https://docs.victoriametrics.com/victoriametrics/stream-aggregation/#scaling-aggregation-horizontally" target="_blank"> horizontally scalable stream aggregation topologies.</a>
+      </p>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls">
+      <h2>Inputs</h2>
+
+      <div class="field" id="seriesField">
+        <button type="button" id="seriesToggle" class="field-label collapse-toggle"
+          aria-expanded="true" aria-controls="seriesEditor">
+          <span class="chevron" aria-hidden="true">▾</span>
+          Time series<span class="hint">one per line, no values/timestamps</span>
+          <span class="collapsed-summary" id="seriesSummary"></span>
+        </button>
+        <div class="editor" id="seriesEditor">
+          <pre class="editor-hl" aria-hidden="true"><code id="seriesHL"></code></pre>
+          <textarea id="series" spellcheck="false" rows="10"
+            placeholder='http_requests_total{instance="localhost",path="/metrics"}'></textarea>
+        </div>
+      </div>
+
+      <div id="errors" class="errors"></div>
+
+      <div class="control-row">
+        <div class="field">
+          <span class="field-label">Sharding key</span>
+          <div class="seg" role="tablist">
+            <button type="button" class="seg-btn active" data-mode="without" role="tab">
+              <strong>Without</strong><span>shardByURL.ignoreLabels</span>
+            </button>
+            <button type="button" class="seg-btn" data-mode="by" role="tab">
+              <strong>By</strong><span>shardByURL.labels</span>
+            </button>
+          </div>
+        </div>
+
+        <label class="field grow">
+          <span class="field-label">Labels</span>
+          <input id="labels" type="text" spellcheck="false"
+            placeholder="comma-separated labels, e.g. instance, pod, le" />
+          <p id="modeHelp" class="mode-help"></p>
+        </label>
+
+        <label class="field narrow">
+          <span class="field-label">Shards</span>
+          <input id="numShards" type="number" min="1" max="100000" value="3" />
+        </label>
+
+        <button id="run" class="run-btn">Compute distribution</button>
+      </div>
+
+      <p class="note">
+        Reproduces vmagent's rendezvous (HRW) hashing exactly via the VictoriaMetrics
+        <code>consistenthash</code> code path. Series with identical sharding-key labels always
+        land on the same shard.
+      </p>
+    </section>
+
+    <section class="panel results">
+      <div id="summary" class="summary"></div>
+      <div id="dist" class="dist"></div>
+      <div id="shards" class="shard-grid"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
