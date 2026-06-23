@@ -1,13 +1,17 @@
 package main
 
-import "github.com/cespare/xxhash/v2"
+import (
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash"
+	"github.com/cespare/xxhash/v2"
+)
 
-// This file reproduces vmagent's sharding logic byte-for-byte so the helper
-// computes exactly the same shard assignment a real vmagent would.
+// This file reproduces vmagent's sharding logic so the helper computes exactly
+// the same shard assignment a real vmagent would.
 //
-// Sources (VictoriaMetrics):
-//   - lib/consistenthash/consistent_hash.go        -> ConsistentHash, GetNodeIdx, fastHashUint64
-//   - app/vmagent/remotewrite/remotewrite.go        -> getLabelsHashForShard, shardAmountRemoteWriteCtx
+// The rendezvous (highest-random-weight) shard selection is imported directly
+// from VictoriaMetrics' lib/consistenthash. The label hashing and label
+// filtering below are copied from app/vmagent/remotewrite/remotewrite.go, which
+// is an internal (unexported) package and cannot be imported.
 //
 // The only intentional simplification: we model the "all remote-write targets
 // healthy" path of shardAmountRemoteWriteCtx (no blocked queues), which is the
@@ -18,58 +22,6 @@ import "github.com/cespare/xxhash/v2"
 type Label struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
-}
-
-// ConsistentHash is copied verbatim from lib/consistenthash/consistent_hash.go.
-// It implements rendezvous (highest-random-weight) hashing, NOT modulo.
-type ConsistentHash struct {
-	hashSeed   uint64
-	nodeHashes []uint64
-}
-
-// NewConsistentHash creates a consistent hash based on the nodes.
-func NewConsistentHash(nodes []string, hashSeed uint64) *ConsistentHash {
-	nodeHashes := make([]uint64, len(nodes))
-	for i, node := range nodes {
-		nodeHashes[i] = xxhash.Sum64([]byte(node))
-	}
-	return &ConsistentHash{
-		hashSeed:   hashSeed,
-		nodeHashes: nodeHashes,
-	}
-}
-
-// GetNodeIdx returns the node index that the input hash value should belong to.
-func (rh *ConsistentHash) GetNodeIdx(h uint64, excludeIdxs []int) int {
-	var mMax uint64
-	var idx int
-	h ^= rh.hashSeed
-
-	if len(excludeIdxs) == len(rh.nodeHashes) {
-		// All the nodes are excluded. Treat this case as no nodes are excluded.
-		excludeIdxs = nil
-	}
-
-next:
-	for i, nh := range rh.nodeHashes {
-		for _, j := range excludeIdxs {
-			if i == j {
-				continue next
-			}
-		}
-		if m := fastHashUint64(nh ^ h); m > mMax {
-			mMax = m
-			idx = i
-		}
-	}
-	return idx
-}
-
-func fastHashUint64(x uint64) uint64 {
-	x ^= x >> 12 // a
-	x ^= x << 25 // b
-	x ^= x >> 27 // c
-	return x * 2685821657736338717
 }
 
 // getLabelsHashForShard is copied from app/vmagent/remotewrite/remotewrite.go.
@@ -123,7 +75,7 @@ func filterShardLabels(labels []Label, mode string, set map[string]struct{}) []L
 // replica fan-out loop in shardAmountRemoteWriteCtx (append to shardIdx, then
 // shardIdx++ with wrap-around, `replicas` times). With all targets healthy the
 // shard index equals the node index from the consistent hash.
-func assignShards(ch *ConsistentHash, h uint64, numShards, replicas int) []int {
+func assignShards(ch *consistenthash.ConsistentHash, h uint64, numShards, replicas int) []int {
 	if replicas <= 0 {
 		replicas = 1
 	}

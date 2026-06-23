@@ -19,15 +19,18 @@ set the shard count, and read off the distribution.
 
 ## Faithfulness
 
-The shard assignment is computed with VictoriaMetrics' **exact** code path, copied
-verbatim into `shard.go` (with source attribution):
+The shard assignment is computed with VictoriaMetrics' **exact** code path:
 
-- `getLabelsHashForShard` — concatenates `name+value` per label with **no
-  separators** and hashes with XXH64 (`github.com/cespare/xxhash/v2 v2.3.0`, the
-  same version vmagent pins).
 - `consistenthash.ConsistentHash` — rendezvous / highest-random-weight selection
-  (**not** modulo), seed `0`.
-- The label filtering and replica fan-out from `shardAmountRemoteWriteCtx`.
+  (**not** modulo), seed `0` — **imported directly** from
+  `github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash`, so it tracks
+  the upstream implementation rather than a copy.
+- `getLabelsHashForShard` — concatenates `name+value` per label with **no
+  separators** and hashes with XXH64. Copied into `shard.go` (with attribution)
+  because it lives in the internal `app/vmagent/remotewrite` package and cannot
+  be imported; it uses the same `github.com/cespare/xxhash/v2` version vmagent pins.
+- The label filtering and replica fan-out from `shardAmountRemoteWriteCtx` —
+  likewise copied from the internal package.
 
 `shard_test.go` checks the XXH64 reference vectors, the hash byte layout, the
 `by`/`without` filtering, and the histogram-co-location invariant.

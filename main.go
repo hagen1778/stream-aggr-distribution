@@ -9,6 +9,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash"
 )
 
 //go:embed static
@@ -104,7 +106,7 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 		}
 		nodes[i] = fmt.Sprintf("%d:%s", i+1, url)
 	}
-	ch := NewConsistentHash(nodes, 0)
+	ch := consistenthash.NewConsistentHash(nodes, 0)
 
 	labelSet := parseLabelSet(req.Labels)
 	labelList := make([]string, 0, len(labelSet))

@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash"
 	"github.com/cespare/xxhash/v2"
 )
 
@@ -56,7 +57,7 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 	for i := range nodes {
 		nodes[i] = sprintfNode(i)
 	}
-	ch := NewConsistentHash(nodes, 0)
+	ch := consistenthash.NewConsistentHash(nodes, 0)
 
 	mkBucket := func(le string) []Label {
 		return []Label{
