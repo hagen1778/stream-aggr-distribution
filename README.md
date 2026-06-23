@@ -6,6 +6,8 @@ aggregation topologies, confirming a sharding key spreads series evenly and
 keeps logically-grouped series (e.g. all `le` buckets of one histogram) together
 on a single shard.
 
+> Disclaimer: this project was created with AI assistance.
+
 ## Run
 
 ```bash
