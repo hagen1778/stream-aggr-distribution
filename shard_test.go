@@ -73,7 +73,7 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 	shardOf := func(le string) int {
 		f := filterShardLabels(mkBucket(le), "without", ignoreLe)
 		h, _ := getLabelsHashForShard(f)
-		return assignShards(ch, h, n, 1)[0]
+		return assignShard(ch, h)
 	}
 
 	base := shardOf("0.1")
@@ -85,7 +85,7 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 }
 
 func sprintfNode(i int) string {
-	// mirrors fmt.Sprintf("%d:%s", i+1, "") used when URLs are not provided
+	// mirrors the node id fmt.Sprintf("%d:", i+1) built by handleShard
 	return itoa(i+1) + ":"
 }
 

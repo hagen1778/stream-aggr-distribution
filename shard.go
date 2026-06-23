@@ -71,28 +71,9 @@ func filterShardLabels(labels []Label, mode string, set map[string]struct{}) []L
 	return out
 }
 
-// assignShards returns the shard indexes a series is routed to, mirroring the
-// replica fan-out loop in shardAmountRemoteWriteCtx (append to shardIdx, then
-// shardIdx++ with wrap-around, `replicas` times). With all targets healthy the
-// shard index equals the node index from the consistent hash.
-func assignShards(ch *consistenthash.ConsistentHash, h uint64, numShards, replicas int) []int {
-	if replicas <= 0 {
-		replicas = 1
-	}
-	if replicas > numShards {
-		replicas = numShards
-	}
-	shardIdx := ch.GetNodeIdx(h, nil)
-	res := make([]int, 0, replicas)
-	for {
-		res = append(res, shardIdx)
-		if len(res) >= replicas {
-			break
-		}
-		shardIdx++
-		if shardIdx >= numShards {
-			shardIdx = 0
-		}
-	}
-	return res
+// assignShard returns the shard index a series is routed to. With all targets
+// healthy the shard index equals the node index from the consistent hash, as in
+// shardAmountRemoteWriteCtx.
+func assignShard(ch *consistenthash.ConsistentHash, h uint64) int {
+	return ch.GetNodeIdx(h, nil)
 }

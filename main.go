@@ -41,8 +41,6 @@ type shardRequest struct {
 	Mode      string `json:"mode"`   // "by" | "without"
 	Labels    string `json:"labels"` // comma-separated
 	NumShards int    `json:"numShards"`
-	URLs      string `json:"urls"`     // optional, one -remoteWrite.url per line
-	Replicas  int    `json:"replicas"` // optional, defaults to 1
 }
 
 type seriesResult struct {
@@ -53,14 +51,12 @@ type seriesResult struct {
 	HashInput  string  `json:"hashInput,omitempty"`
 	Hash       string  `json:"hash,omitempty"`
 	Primary    int     `json:"primary"`
-	Shards     []int   `json:"shards,omitempty"`
 }
 
 type shardResponse struct {
 	NumShards int            `json:"numShards"`
 	Mode      string         `json:"mode"`
 	Labels    []string       `json:"labels"`
-	Replicas  int            `json:"replicas"`
 	Nodes     []string       `json:"nodes"`
 	Results   []seriesResult `json:"results"`
 	PerShard  []int          `json:"perShard"`
@@ -89,22 +85,14 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 	if mode != "by" {
 		mode = "without"
 	}
-	replicas := req.Replicas
-	if replicas < 1 {
-		replicas = 1
-	}
 
-	// Build node identifiers exactly as vmagent does: "<idx+1>:<url>".
-	// URLs are optional; when omitted the URL part is empty, which keeps the
-	// algorithm faithful while indices stay deterministic.
-	urls := splitNonEmptyLines(req.URLs)
+	// Build node identifiers as vmagent does: "<idx+1>:<url>". The UI shards by
+	// shard count alone, so the URL part is empty ("1:", "2:", …) — the algorithm
+	// and distribution are identical, only the absolute indices differ from a
+	// specific cluster's -remoteWrite.url ordering.
 	nodes := make([]string, req.NumShards)
 	for i := 0; i < req.NumShards; i++ {
-		url := ""
-		if i < len(urls) {
-			url = urls[i]
-		}
-		nodes[i] = fmt.Sprintf("%d:%s", i+1, url)
+		nodes[i] = fmt.Sprintf("%d:", i+1)
 	}
 	ch := consistenthash.NewConsistentHash(nodes, 0)
 
@@ -121,7 +109,6 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 		NumShards: req.NumShards,
 		Mode:      mode,
 		Labels:    labelList,
-		Replicas:  replicas,
 		Nodes:     nodes,
 		PerShard:  make([]int, req.NumShards),
 	}
@@ -140,17 +127,14 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 		}
 		hashLabels := filterShardLabels(labels, mode, labelSet)
 		h, hashInput := getLabelsHashForShard(hashLabels)
-		shards := assignShards(ch, h, req.NumShards, replicas)
+		shard := assignShard(ch, h)
 
 		res.OK = true
 		res.HashLabels = hashLabels
 		res.HashInput = hashInput
 		res.Hash = fmt.Sprintf("0x%016x", h)
-		res.Primary = shards[0]
-		res.Shards = shards
-		for _, s := range shards {
-			resp.PerShard[s]++
-		}
+		res.Primary = shard
+		resp.PerShard[shard]++
 		resp.Results = append(resp.Results, res)
 	}
 
@@ -162,15 +146,4 @@ func writeJSONError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
-}
-
-func splitNonEmptyLines(s string) []string {
-	var out []string
-	for _, line := range strings.Split(s, "\n") {
-		t := strings.TrimSpace(line)
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return out
 }
