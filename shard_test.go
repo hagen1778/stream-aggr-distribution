@@ -64,8 +64,8 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 			{"__name__", "grpc_server_handling_seconds_bucket"},
 			{"grpc_method", "Get"},
 			{"grpc_service", "Store"},
-			{"task_name", "api"},
-			{"cell_id", "c1"},
+			{"job", "api"},
+			{"instance", "host1"},
 			{"le", le},
 		}
 	}
