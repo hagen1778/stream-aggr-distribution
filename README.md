@@ -2,20 +2,27 @@
 
 A small web tool to visualise how vmagent's `-remoteWrite.shardByURL` distributes
 time series across shards. Useful for planning horizontally scalable stream
-aggregation topologies — confirming a sharding key spreads series evenly and
+aggregation topologies, confirming a sharding key spreads series evenly and
 keeps logically-grouped series (e.g. all `le` buckets of one histogram) together
 on a single shard.
 
 ## Run
 
 ```bash
-go run .                 # serves on http://localhost:8080
-go run . -listenAddr :9000
+make run
 ```
 
-Open the URL, paste time series (one per line, no values/timestamps), choose the
-sharding key (`Without` → `shardByURL.ignoreLabels`, `By` → `shardByURL.labels`),
+Open the URL, paste time series one per line, no values/timestamps. For example:
+```
+http_request_total{pod="a", path="foo"}
+http_request_total{pod="b", path="foo"}
+http_request_total{pod="c", path="foo"}
+```
+
+Choose the sharding key (`Without` => `shardByURL.ignoreLabels`, `By` => `shardByURL.labels`),
 set the shard count, and read off the distribution.
+
+![img.png](img.png)
 
 ## Faithfulness
 
@@ -35,23 +42,8 @@ The shard assignment is computed with VictoriaMetrics' **exact** code path:
 `shard_test.go` checks the XXH64 reference vectors, the hash byte layout, the
 `by`/`without` filtering, and the histogram-co-location invariant.
 
-### Modelling choices (documented, not bugs)
+### Modelling choices
 
-- **Node identity.** vmagent builds node IDs as `"<i+1>:<url>"`. The UI drives
-  sharding by shard count alone, so the URL part is empty (`"1:"`, `"2:"`, …) —
-  the algorithm and distribution are identical, only the absolute indices differ
-  from a specific cluster. (The `/api/shard` endpoint still accepts an optional
-  `urls` field for cluster-exact indices.)
 - **Label order.** Labels are hashed in the order written, with `__name__` first.
   This matches vmagent's default (it does not sort labels unless `-sortLabels` is
   set), so `m{a,b}` and `m{b,a}` may hash differently — as they would in vmagent.
-- **All targets healthy.** We model the path where every remote-write queue is
-  healthy (the relevant case for planning); shard index then equals the node
-  index from the consistent hash.
-
-## Files
-
-- `shard.go` — copied VM sharding primitives.
-- `parser.go` — parses `name{label="value",...}` selectors.
-- `main.go` — HTTP server + `/api/shard` JSON endpoint + embedded UI.
-- `static/` — single-page UI (`index.html`, `app.js`, `styles.css`).
