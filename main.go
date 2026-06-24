@@ -44,19 +44,15 @@ type shardRequest struct {
 }
 
 type seriesResult struct {
-	Raw        string  `json:"raw"`
-	OK         bool    `json:"ok"`
-	Error      string  `json:"error,omitempty"`
-	HashLabels []Label `json:"hashLabels,omitempty"`
-	HashInput  string  `json:"hashInput,omitempty"`
-	Hash       string  `json:"hash,omitempty"`
-	Primary    int     `json:"primary"`
+	Raw     string `json:"raw"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Hash    string `json:"hash,omitempty"`
+	Primary int    `json:"primary"`
 }
 
 type shardResponse struct {
 	NumShards int            `json:"numShards"`
-	Mode      string         `json:"mode"`
-	Labels    []string       `json:"labels"`
 	Nodes     []string       `json:"nodes"`
 	Results   []seriesResult `json:"results"`
 	PerShard  []int          `json:"perShard"`
@@ -77,8 +73,8 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "number of shards must be >= 1")
 		return
 	}
-	if req.NumShards > 100000 {
-		writeJSONError(w, "number of shards is unreasonably large (max 100000)")
+	if req.NumShards > 1000 {
+		writeJSONError(w, "number of shards is unreasonably large (max 1000)")
 		return
 	}
 	mode := req.Mode
@@ -96,23 +92,13 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 	}
 	ch := consistenthash.NewConsistentHash(nodes, 0)
 
-	labelSet := parseLabelSet(req.Labels)
-	labelList := make([]string, 0, len(labelSet))
-	for _, p := range strings.Split(req.Labels, ",") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			labelList = append(labelList, p)
-		}
-	}
-
 	resp := shardResponse{
 		NumShards: req.NumShards,
-		Mode:      mode,
-		Labels:    labelList,
 		Nodes:     nodes,
 		PerShard:  make([]int, req.NumShards),
 	}
 
+	shardBy := parseLabelSet(req.Labels)
 	for _, line := range strings.Split(req.Series, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -125,13 +111,11 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 			resp.Results = append(resp.Results, res)
 			continue
 		}
-		hashLabels := filterShardLabels(labels, mode, labelSet)
-		h, hashInput := getLabelsHashForShard(hashLabels)
+		hashLabels := filterShardLabels(labels, mode, shardBy)
+		h := getLabelsHashForShard(hashLabels)
 		shard := assignShard(ch, h)
 
 		res.OK = true
-		res.HashLabels = hashLabels
-		res.HashInput = hashInput
 		res.Hash = fmt.Sprintf("0x%016x", h)
 		res.Primary = shard
 		resp.PerShard[shard]++

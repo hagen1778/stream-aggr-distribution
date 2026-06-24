@@ -29,13 +29,13 @@ type Label struct {
 // It deliberately omits the '=' separator between label name and value and uses
 // no separator between labels. Changing it would re-shard all series across
 // remoteWrite targets, so this exact byte layout matters.
-func getLabelsHashForShard(labels []Label) (uint64, string) {
+func getLabelsHashForShard(labels []Label) uint64 {
 	var b []byte
 	for _, label := range labels {
 		b = append(b, label.Name...)
 		b = append(b, label.Value...)
 	}
-	return xxhash.Sum64(b), string(b)
+	return xxhash.Sum64(b)
 }
 
 // filterShardLabels reproduces the label selection in shardAmountRemoteWriteCtx.
@@ -55,6 +55,7 @@ func filterShardLabels(labels []Label, mode string, set map[string]struct{}) []L
 		}
 		return labels
 	}
+
 	out := make([]Label, 0, len(labels))
 	for _, label := range labels {
 		_, inSet := set[label.Name]
