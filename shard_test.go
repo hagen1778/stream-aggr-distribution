@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash"
@@ -20,10 +21,7 @@ func TestXXHashReferenceVector(t *testing.T) {
 
 func TestLabelsHashLayout(t *testing.T) {
 	// getLabelsHashForShard concatenates name+value with no separators.
-	h, in := getLabelsHashForShard([]Label{{"__name__", "m"}, {"a", "1"}})
-	if in != "__name__ma1" {
-		t.Fatalf("hash input = %q, want %q", in, "__name__ma1")
-	}
+	h := getLabelsHashForShard([]Label{{"__name__", "m"}, {"a", "1"}})
 	if want := xxhash.Sum64([]byte("__name__ma1")); h != want {
 		t.Fatalf("hash = %#x, want %#x", h, want)
 	}
@@ -55,7 +53,7 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 	const n = 20
 	nodes := make([]string, n)
 	for i := range nodes {
-		nodes[i] = sprintfNode(i)
+		nodes[i] = fmt.Sprintf("%d:", i+1)
 	}
 	ch := consistenthash.NewConsistentHash(nodes, 0)
 
@@ -72,7 +70,7 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 	ignoreLe := map[string]struct{}{"le": {}}
 	shardOf := func(le string) int {
 		f := filterShardLabels(mkBucket(le), "without", ignoreLe)
-		h, _ := getLabelsHashForShard(f)
+		h := getLabelsHashForShard(f)
 		return assignShard(ch, h)
 	}
 
@@ -82,23 +80,4 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 			t.Fatalf("bucket le=%s went to shard %d, want %d (histogram split across shards)", le, got, base)
 		}
 	}
-}
-
-func sprintfNode(i int) string {
-	// mirrors the node id fmt.Sprintf("%d:", i+1) built by handleShard
-	return itoa(i+1) + ":"
-}
-
-func itoa(i int) string {
-	if i == 0 {
-		return "0"
-	}
-	var b [20]byte
-	pos := len(b)
-	for i > 0 {
-		pos--
-		b[pos] = byte('0' + i%10)
-		i /= 10
-	}
-	return string(b[pos:])
 }
