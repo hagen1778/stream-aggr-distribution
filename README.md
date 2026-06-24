@@ -32,6 +32,6 @@ The shard assignment is computed with VictoriaMetrics' **exact** code path:
   [github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash](https://github.com/VictoriaMetrics/VictoriaMetrics/tree/master/lib/consistenthash)
 - `getLabelsHashForShard` — concatenates `name+value` per label with **no
   separators** and hashes with XXH64; it uses the same `github.com/cespare/xxhash/v2` version vmagent pins.
-- **Label order.** Labels are hashed in the order written, with `__name__` first.
+- Labels are hashed in the order written, with `__name__` first.
   This matches vmagent's default (it does not sort labels unless `-sortLabels` is
   set), so `m{a,b}` and `m{b,a}` may hash differently — as they would in vmagent.
