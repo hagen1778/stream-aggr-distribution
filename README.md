@@ -43,3 +43,5 @@ check if there are any duplicates after the aggregation.
 
 > Duplicates would mean that at least two distinct aggregation shards produced series with identical labels that
 > will later collide in the remote time series database.
+
+![duplicates.png](duplicates.png)
