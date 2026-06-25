@@ -21,7 +21,7 @@ const els = {
 let mode = "without";
 
 const MODE_HELP = {
-  without: "Hash over ALL labels except the listed ones. Empty list = shard over the full label set.",
+  without: "Hash over ALL labels (__name__ is also a label) except the listed ones. Empty list = shard over the full label set.",
   by: "Hash over ONLY the listed labels. Empty list = every series hashes the empty string → all land on one shard.",
 };
 
