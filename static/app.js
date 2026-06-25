@@ -16,22 +16,97 @@ const els = {
   dist: $("dist"),
   shards: $("shards"),
   errors: $("errors"),
+  resultsPanel: $("resultsPanel"),
+  resultsToggle: $("resultsToggle"),
+  aggLabels: $("aggLabels"),
+  aggHelp: $("aggHelp"),
+  aggResults: $("aggResults"),
 };
 
 let mode = "without";
+let aggMode = "without";
 
 const MODE_HELP = {
   without: "Hash over ALL labels (__name__ is also a label) except the listed ones. Empty list = shard over the full label set.",
   by: "Hash over ONLY the listed labels. Empty list = every series hashes the empty string → all land on one shard.",
 };
 
-// Seed example tied to grpc histogram sharding (shard by everything except le).
+const AGG_HELP = {
+  without: "Aggregate away the listed labels (and __name__). Output keeps the rest.",
+  by: "Aggregate keeping ONLY the listed labels. __name__ is dropped unless listed.",
+};
+
+// Seed example: 3 series differing only by pod, aggregated without pod ->
+// they collapse to the same identity and (since pod drives sharding) land on
+// different shards, demonstrating cross-shard duplicates.
 els.series.value = [
   'http_request_total{pod="a", path="foo"}',
   'http_request_total{pod="b", path="foo"}',
   'http_request_total{pod="c", path="foo"}',
 ].join("\n");
 els.labels.value = "le";
+els.aggLabels.value = "pod";
+
+/* ---------- persistence (localStorage) ---------- */
+
+const STORAGE_KEY = "vmagent-sharding-emulator";
+// Series inputs larger than this are not persisted (avoid bloating localStorage).
+const MAX_SAVED_SERIES = 1000;
+
+function seriesCount() {
+  return els.series.value.split("\n").filter((l) => l.trim() !== "").length;
+}
+
+function saveState() {
+  const state = {
+    mode,
+    labels: els.labels.value,
+    numShards: els.numShards.value,
+    aggMode,
+    aggLabels: els.aggLabels.value,
+    resultsCollapsed: els.resultsPanel.classList.contains("collapsed"),
+    seriesCollapsed: els.seriesField.classList.contains("collapsed"),
+  };
+  // Only persist the series text when it isn't too large.
+  if (seriesCount() <= MAX_SAVED_SERIES) {
+    state.series = els.series.value;
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    /* storage unavailable or over quota — ignore */
+  }
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function applyState(s) {
+  if (typeof s.series === "string") els.series.value = s.series;
+  if (typeof s.labels === "string") els.labels.value = s.labels;
+  if (s.numShards != null && s.numShards !== "") els.numShards.value = s.numShards;
+  if (typeof s.aggLabels === "string") els.aggLabels.value = s.aggLabels;
+  if (s.mode === "by" || s.mode === "without") mode = s.mode;
+  if (s.aggMode === "by" || s.aggMode === "without") aggMode = s.aggMode;
+  if (s.resultsCollapsed) {
+    els.resultsPanel.classList.add("collapsed");
+    els.resultsToggle.setAttribute("aria-expanded", "false");
+  }
+  if (s.seriesCollapsed) {
+    els.seriesField.classList.add("collapsed");
+    els.seriesToggle.setAttribute("aria-expanded", "false");
+    updateSeriesSummary();
+  }
+}
+
+const savedState = loadState();
+if (savedState) applyState(savedState);
 
 /* ---------- series syntax highlighting ---------- */
 
@@ -158,30 +233,61 @@ els.seriesToggle.addEventListener("click", () => {
     // textarea height must be recomputed after being un-hidden
     syncEditor();
   }
+  saveState();
 });
 
-/* ---------- mode toggle ---------- */
+/* ---------- sharding key toggle ---------- */
+
+const shardSeg = $("shardSeg");
 
 function setMode(m) {
   mode = m;
-  document.querySelectorAll(".seg-btn").forEach((b) =>
+  shardSeg.querySelectorAll(".seg-btn").forEach((b) =>
     b.classList.toggle("active", b.dataset.mode === m)
   );
   els.modeHelp.textContent = MODE_HELP[m];
 }
 
-document.querySelectorAll(".seg-btn").forEach((b) =>
+shardSeg.querySelectorAll(".seg-btn").forEach((b) =>
   b.addEventListener("click", () => {
     setMode(b.dataset.mode);
     run();
   })
 );
-setMode("without");
+setMode(mode);
+
+/* ---------- aggregation key toggle ---------- */
+
+const aggSeg = $("aggSeg");
+
+function setAggMode(m) {
+  aggMode = m;
+  aggSeg.querySelectorAll(".seg-btn").forEach((b) =>
+    b.classList.toggle("active", b.dataset.aggmode === m)
+  );
+  els.aggHelp.textContent = AGG_HELP[m];
+}
+
+aggSeg.querySelectorAll(".seg-btn").forEach((b) =>
+  b.addEventListener("click", () => {
+    setAggMode(b.dataset.aggmode);
+    run();
+  })
+);
+setAggMode(aggMode);
+
+/* ---------- collapse the sharding-distribution panel ---------- */
+
+els.resultsToggle.addEventListener("click", () => {
+  const collapsed = els.resultsPanel.classList.toggle("collapsed");
+  els.resultsToggle.setAttribute("aria-expanded", String(!collapsed));
+  saveState();
+});
 
 els.run.addEventListener("click", run);
 
 let debounce;
-[els.series, els.labels, els.numShards].forEach((el) =>
+[els.series, els.labels, els.numShards, els.aggLabels].forEach((el) =>
   el.addEventListener("input", () => {
     clearTimeout(debounce);
     debounce = setTimeout(run, 350);
@@ -209,11 +315,15 @@ els.shards.addEventListener("click", (e) => {
 /* ---------- compute + render ---------- */
 
 async function run() {
+  saveState();
+
   const payload = {
     series: els.series.value,
     mode,
     labels: els.labels.value,
     numShards: parseInt(els.numShards.value, 10) || 0,
+    aggMode,
+    aggLabels: els.aggLabels.value,
   };
 
   let resp;
@@ -239,6 +349,7 @@ function renderFatal(msg) {
   els.summary.innerHTML = "";
   els.dist.innerHTML = "";
   els.shards.innerHTML = "";
+  els.aggResults.innerHTML = "";
   els.errors.innerHTML = `<h3>Error</h3><ul><li class="e-msg">${esc(msg)}</li></ul>`;
 }
 
@@ -336,6 +447,52 @@ function render(resp) {
   } else {
     els.errors.innerHTML = "";
   }
+
+  renderAgg(resp);
+}
+
+function renderAgg(resp) {
+  const agg = resp.agg || [];
+  if (!agg.length) {
+    els.aggResults.innerHTML = `<p class="placeholder">No aggregated series — add some time series above.</p>`;
+    return;
+  }
+
+  // Group by output identity to count distinct identities and duplicates.
+  const groups = new Map();
+  agg.forEach((a) => {
+    if (!groups.has(a.display)) groups.set(a.display, []);
+    groups.get(a.display).push(a);
+  });
+  const identities = groups.size;
+  const dupIdentities = [...groups.values()].filter((g) => g[0].duplicate).length;
+  const totalOut = agg.length;
+
+  const dupClass = dupIdentities > 0 ? "warn" : "good";
+  let html = `<div class="summary">
+    ${stat(totalOut, "output series (all shards)")}
+    ${stat(identities, "unique identities")}
+    ${stat(dupIdentities, "duplicated", dupClass)}
+  </div>`;
+
+  html += dupIdentities
+    ? `<p class="agg-verdict warn">⚠ ${dupIdentities} identit${dupIdentities === 1 ? "y is" : "ies are"} emitted by more than one shard — these collide as duplicates at the remote storage. Keep the shard key inside the aggregation key to avoid this.</p>`
+    : `<p class="agg-verdict good">✓ No duplicates — every aggregated identity is produced by a single shard.</p>`;
+
+  html += `<h3>Aggregated series, per emitting shard</h3><ul class="agg-list">`;
+  agg.forEach((a) => {
+    const badge = a.duplicate
+      ? `<span class="dup-badge">duplicate ×${a.dupCount} · shards ${a.dupShards.join(", ")}</span>`
+      : "";
+    html += `<li class="agg-item ${a.duplicate ? "dup" : ""}">
+      <span class="agg-shard">shard ${a.shard}</span>
+      <span class="agg-series">${highlightLine(a.display)}</span>
+      ${badge}
+    </li>`;
+  });
+  html += `</ul>`;
+
+  els.aggResults.innerHTML = html;
 }
 
 function stat(num, lbl, cls = "") {

@@ -35,3 +35,11 @@ The shard assignment is computed with VictoriaMetrics' **exact** code path:
 - Labels are hashed in the order written, with `__name__` first.
   This matches vmagent's default (it does not sort labels unless `-sortLabels` is
   set), so `m{a,b}` and `m{b,a}` may hash differently — as they would in vmagent.
+
+In section `Aggregate` specify which labels you want to use to aggregate series after the sharding.
+For example, if you have 3 vmagent shards with stream aggregation enabled and aggregation rules contain `by: cluster`,
+then specify `by: cluster` in the section settings. It will apply this aggregation to series within shards and will
+check if there are any duplicates after the aggregation. 
+
+> Duplicates would mean that at least two distinct aggregation shards produced series with identical labels that
+> will later collide in the remote time series database.

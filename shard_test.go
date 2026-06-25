@@ -81,3 +81,64 @@ func TestHistogramBucketsColocateWhenLeIgnored(t *testing.T) {
 		}
 	}
 }
+
+func TestAggregateLabels(t *testing.T) {
+	labels := []Label{{"__name__", "m"}, {"pod", "a"}, {"path", "foo"}}
+
+	// by: keep only listed labels; __name__ kept only if explicitly listed.
+	by := aggregateLabels(labels, "by", map[string]struct{}{"path": {}})
+	if len(by) != 1 || by[0].Name != "path" {
+		t.Fatalf("by[path] = %+v", by)
+	}
+	byName := aggregateLabels(labels, "by", map[string]struct{}{"__name__": {}, "path": {}})
+	if len(byName) != 2 || byName[0].Name != "__name__" {
+		t.Fatalf("by[__name__,path] = %+v", byName)
+	}
+
+	// without: drop listed labels and always drop __name__.
+	without := aggregateLabels(labels, "without", map[string]struct{}{"pod": {}})
+	if len(without) != 1 || without[0].Name != "path" {
+		t.Fatalf("without[pod] = %+v (expected only path; __name__ must be dropped)", without)
+	}
+}
+
+// Aggregating away the shard key produces duplicates: series that landed on
+// different shards collapse to the same identity, so each shard emits it.
+func TestAggregationDuplicatesAcrossShards(t *testing.T) {
+	const n = 3
+	nodes := make([]string, n)
+	for i := range nodes {
+		nodes[i] = fmt.Sprintf("%d:", i+1)
+	}
+	ch := consistenthash.NewConsistentHash(nodes, 0)
+
+	// Three series differing only by pod, sharded over all labels (without {}).
+	series := [][]Label{
+		{{"__name__", "http_request_total"}, {"pod", "a"}, {"path", "foo"}},
+		{{"__name__", "http_request_total"}, {"pod", "b"}, {"path", "foo"}},
+		{{"__name__", "http_request_total"}, {"pod", "c"}, {"path", "foo"}},
+	}
+	shardOf := func(l []Label) int {
+		return assignShard(ch, getLabelsHashForShard(filterShardLabels(l, "without", nil)))
+	}
+
+	// Aggregate `without pod` -> every series collapses to {path="foo"}.
+	identityShards := map[string]map[int]struct{}{}
+	for _, l := range series {
+		agg := aggregateLabels(l, "without", map[string]struct{}{"pod": {}})
+		k := seriesKey(agg)
+		if identityShards[k] == nil {
+			identityShards[k] = map[int]struct{}{}
+		}
+		identityShards[k][shardOf(l)] = struct{}{}
+	}
+
+	if len(identityShards) != 1 {
+		t.Fatalf("expected 1 aggregated identity, got %d", len(identityShards))
+	}
+	for k, shards := range identityShards {
+		if len(shards) < 2 {
+			t.Fatalf("identity %q emitted by %d shard(s); expected duplicates across shards", k, len(shards))
+		}
+	}
+}

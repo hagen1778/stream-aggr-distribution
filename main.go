@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/VictoriaMetrics/VictoriaMetrics/lib/consistenthash"
@@ -38,9 +39,11 @@ func main() {
 
 type shardRequest struct {
 	Series    string `json:"series"`
-	Mode      string `json:"mode"`   // "by" | "without"
-	Labels    string `json:"labels"` // comma-separated
+	Mode      string `json:"mode"`   // sharding key: "by" | "without"
+	Labels    string `json:"labels"` // comma-separated sharding labels
 	NumShards int    `json:"numShards"`
+	AggMode   string `json:"aggMode"`   // aggregation: "by" | "without"
+	AggLabels string `json:"aggLabels"` // comma-separated aggregation labels
 }
 
 type seriesResult struct {
@@ -51,11 +54,23 @@ type seriesResult struct {
 	Primary int    `json:"primary"`
 }
 
+// aggResult is one aggregated output series emitted by one shard. When the same
+// identity is emitted by more than one shard, those entries are duplicates at
+// the remote storage and are marked accordingly.
+type aggResult struct {
+	Display   string `json:"display"`   // formatted output series identity
+	Shard     int    `json:"shard"`     // shard that emits it
+	Duplicate bool   `json:"duplicate"` // emitted by >1 shard
+	DupCount  int    `json:"dupCount"`  // number of shards emitting this identity
+	DupShards []int  `json:"dupShards"` // those shards
+}
+
 type shardResponse struct {
 	NumShards int            `json:"numShards"`
 	Nodes     []string       `json:"nodes"`
 	Results   []seriesResult `json:"results"`
 	PerShard  []int          `json:"perShard"`
+	Agg       []aggResult    `json:"agg"`
 }
 
 func handleShard(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +96,10 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 	if mode != "by" {
 		mode = "without"
 	}
+	aggMode := req.AggMode
+	if aggMode != "by" {
+		aggMode = "without"
+	}
 
 	// Build node identifiers as vmagent does: "<idx+1>:<url>". The UI shards by
 	// shard count alone, so the URL part is empty ("1:", "2:", …) — the algorithm
@@ -99,6 +118,16 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shardBy := parseLabelSet(req.Labels)
+	aggBy := parseLabelSet(req.AggLabels)
+
+	// aggAccum tracks, per aggregated-output identity, which shards emit it.
+	type aggAccum struct {
+		labels []Label
+		shards map[int]struct{}
+	}
+	aggByKey := make(map[string]*aggAccum)
+	var aggOrder []string
+
 	for _, line := range strings.Split(req.Series, "\n") {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -120,6 +149,40 @@ func handleShard(w http.ResponseWriter, r *http.Request) {
 		res.Primary = shard
 		resp.PerShard[shard]++
 		resp.Results = append(resp.Results, res)
+
+		// Aggregate this series within its shard: a shard emits one output series
+		// per distinct aggregation-key identity it sees.
+		aggLabels := aggregateLabels(labels, aggMode, aggBy)
+		key := seriesKey(aggLabels)
+		acc := aggByKey[key]
+		if acc == nil {
+			acc = &aggAccum{labels: aggLabels, shards: make(map[int]struct{})}
+			aggByKey[key] = acc
+			aggOrder = append(aggOrder, key)
+		}
+		acc.shards[shard] = struct{}{}
+	}
+
+	// Emit one aggResult per (identity, shard). An identity emitted by more than
+	// one shard yields duplicates at the remote storage.
+	for _, key := range aggOrder {
+		acc := aggByKey[key]
+		shards := make([]int, 0, len(acc.shards))
+		for s := range acc.shards {
+			shards = append(shards, s)
+		}
+		sort.Ints(shards)
+		display := formatSeries(acc.labels)
+		dup := len(shards) > 1
+		for _, s := range shards {
+			resp.Agg = append(resp.Agg, aggResult{
+				Display:   display,
+				Shard:     s,
+				Duplicate: dup,
+				DupCount:  len(shards),
+				DupShards: shards,
+			})
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

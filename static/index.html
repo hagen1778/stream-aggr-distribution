@@ -40,7 +40,7 @@
       <div class="control-row">
         <div class="field">
           <span class="field-label">Sharding key</span>
-          <div class="seg" role="tablist">
+          <div class="seg" id="shardSeg" role="tablist">
             <button type="button" class="seg-btn active" data-mode="without" role="tab">
               <strong>Without</strong><span>shardByURL.ignoreLabels</span>
             </button>
@@ -66,10 +66,48 @@
       </div>
     </section>
 
-    <section class="panel results">
-      <div id="summary" class="summary"></div>
-      <div id="dist" class="dist"></div>
-      <div id="shards" class="shard-grid"></div>
+    <section class="panel results" id="resultsPanel">
+      <button type="button" id="resultsToggle" class="panel-toggle" aria-expanded="true" aria-controls="resultsBody">
+        <span class="chevron" aria-hidden="true">▾</span> Sharding distribution
+      </button>
+      <div class="panel-body" id="resultsBody">
+        <div id="summary" class="summary"></div>
+        <div id="dist" class="dist"></div>
+        <div id="shards" class="shard-grid"></div>
+      </div>
+    </section>
+
+    <section class="panel aggregate" id="aggPanel">
+      <h2>Aggregate</h2>
+      <p class="panel-desc">
+        Aggregate each shard's series independently by this key, then check whether different shards
+        emit the same output series. Matching identities across shards become
+        <span class="dup-inline">duplicates</span> at the remote storage.
+        <code>__name__</code> is aggregated away unless explicitly listed under <code>by</code>.
+      </p>
+
+      <div class="control-row">
+        <div class="field">
+          <span class="field-label">Aggregate</span>
+          <div class="seg" id="aggSeg" role="tablist">
+            <button type="button" class="seg-btn active" data-aggmode="without" role="tab">
+              <strong>Without</strong><span>without: [...]</span>
+            </button>
+            <button type="button" class="seg-btn" data-aggmode="by" role="tab">
+              <strong>By</strong><span>by: [...]</span>
+            </button>
+          </div>
+        </div>
+
+        <label class="field grow">
+          <span class="field-label">Labels</span>
+          <input id="aggLabels" type="text" spellcheck="false"
+            placeholder="comma-separated labels, e.g. pod, le" />
+          <p id="aggHelp" class="mode-help"></p>
+        </label>
+      </div>
+
+      <div id="aggResults"></div>
     </section>
   </main>
 
